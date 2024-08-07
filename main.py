@@ -1,30 +1,40 @@
 import tkinter as tk
 from tkinter import messagebox
+from tkinter import simpledialog
 import random
 import json
 import os
+import pygame
 
 class VocabularyApp:
     def __init__(self, root):
         self.root = root
         self.root.title("Vocabulary Learning App")
+
+        pygame.mixer.init()
+        self.correct_sound = pygame.mixer.Sound("correct.wav")
+        self.incorrect_sound = pygame.mixer.Sound("incorrect.wav")
         
         self.vocab = {
-            "aberration": "a departure from what is normal",
-            "cogent": "clear, logical, and convincing",
-            "denigrate": "criticize unfairly",
-            "enervate": "to weaken or drain energy",
-            "facetious": "treating serious issues with humor",
-            "laconic": "using very few words",
-            "munificent": "larger or more generous than usual",
-            "obdurate": "stubbornly refusing to change one's opinion",
-            "pulchritudinous": "beautiful",
-            "quixotic": "exceedingly idealistic; unrealistic and impractical",
-            "sagacious": "having good judgment; wise"
+            "easy": {
+                "apple": "a fruit that is usually red or green",
+                "ball": "a round object used in games",
+                "cat": "a small domesticated carnivorous mammal",
+            },
+            "medium": {
+                "aberration": "a departure from what is normal",
+                "cogent": "clear, logical, and convincing",
+                "denigrate": "criticize unfairly",
+            },
+            "hard": {
+                "enervate": "to weaken or drain energy",
+                "pulchritudinous": "beautiful",
+                "quixotic": "exceedingly idealistic; unrealistic and impractical",
+            }
         }
-        self.words = list(self.vocab.keys())
-        random.shuffle(self.words)
-        self.current_word = ""
+        
+        self.difficulty = tk.StringVar(value="easy")
+        self.words = []
         self.load_leaderboard()
         self.user_authenticated = False
 
@@ -79,6 +89,12 @@ class VocabularyApp:
         self.resume_button = tk.Button(self.root, text="Resume Timer", command=self.resume_timer, font=("Helvetica", 16))
         self.resume_button.pack(pady=10)
 
+        self.profile_button = tk.Button(self.root, text="Profile", command=self.view_profile, font=("Helvetica", 16))
+        self.profile_button.pack(pady=10)
+
+        self.practice_mode_button = tk.Button(self.root, text="Practice Mode", command=self.practice_mode, font=("Helvetica", 16))
+        self.practice_mode_button.pack(pady=10)
+
         self.score_label = tk.Label(self.root, text="Score: 0", font=("Helvetica", 16))
         self.score_label.pack(pady=10)
 
@@ -88,8 +104,19 @@ class VocabularyApp:
         self.stats_label = tk.Label(self.root, text="", font=("Helvetica", 14))
         self.stats_label.pack(pady=10)
 
+        self.difficulty_frame = tk.Frame(self.root)
+        self.difficulty_frame.pack(pady=10)
+
+        self.difficulty_label = tk.Label(self.difficulty_frame, text="Difficulty:", font=("Helvetica", 16))
+        self.difficulty_label.pack(side=tk.LEFT, padx=5)
+
+        self.difficulty_option_menu = tk.OptionMenu(self.difficulty_frame, self.difficulty, "easy", "medium", "hard", command=self.update_difficulty)
+        self.difficulty_option_menu.pack(side=tk.LEFT, padx=5)
+
         self.leaderboard_button = tk.Button(self.root, text="Show Leaderboard", command=self.show_leaderboard, font=("Helvetica", 16))
         self.leaderboard_button.pack(pady=10)
+
+        self.update_difficulty("easy")
 
     def login_user(self):
         username = self.user_entry.get().strip()
@@ -179,12 +206,13 @@ class VocabularyApp:
         else:
             messagebox.showinfo("Done", "You've gone through all the words!")
             self.save_user_data()
+            self.save_leaderboard()
             self.root.quit()
 
     def set_options(self):
-        correct_answer = self.vocab[self.current_word]
+        correct_answer = self.vocab[self.difficulty.get()][self.current_word]
         options = [correct_answer] + random.sample(
-            [meaning for word, meaning in self.vocab.items() if word != self.current_word], 3)
+            [meaning for word, meaning in self.vocab[self.difficulty.get()].items() if word != self.current_word], 3)
         random.shuffle(options)
         for button, option in zip(self.option_buttons, options):
             button.config(text=option)
@@ -195,22 +223,24 @@ class VocabularyApp:
             return
 
         user_answer = self.option_buttons[button_index].cget("text")
-        correct_answer = self.vocab[self.current_word]
+        correct_answer = self.vocab[self.difficulty.get()][self.current_word]
 
         if user_answer == correct_answer:
             self.score += 1
             self.correct_answers += 1
+            self.correct_sound.play()
             messagebox.showinfo("Correct", "That's correct!")
         else:
             self.incorrect_answers.append(self.current_word)
-            messagebox.showerror("Incorrect", f"Wrong! The correct answer is: {correct_answer}\n\nDefinition: {self.vocab[self.current_word]}")
+            self.incorrect_sound.play()
+            messagebox.showerror("Incorrect", f"Wrong! The correct answer is: {correct_answer}\n\nDefinition: {self.vocab[self.difficulty.get()][self.current_word]}")
 
         self.update_stats()
         self.score_label.config(text=f"Score: {self.score}")
         self.next_word()
 
     def show_hint(self):
-        correct_answer = self.vocab[self.current_word]
+        correct_answer = self.vocab[self.difficulty.get()][self.current_word]
         hint = f"Hint: {correct_answer[:len(correct_answer)//2]}..."
         messagebox.showinfo("Hint", hint)
 
@@ -266,6 +296,28 @@ class VocabularyApp:
     def show_leaderboard(self):
         leaderboard_text = "\n".join([f"{entry['user']}: {entry['score']}" for entry in self.leaderboard])
         messagebox.showinfo("Leaderboard", leaderboard_text)
+
+    def update_difficulty(self, value):
+        self.words = list(self.vocab[self.difficulty.get()].keys())
+        random.shuffle(self.words)
+        self.next_word()
+
+    def view_profile(self):
+        if not self.user_authenticated:
+            messagebox.showerror("Error", "Please login first.")
+            return
+        
+        profile_info = f"Username: {self.user_name}\n"
+        profile_info += f"Score: {self.score}\n"
+        profile_info += f"Correct Answers: {self.correct_answers}\n"
+        profile_info += f"Total Words Attempted: {self.stats['total_words_attempted']}\n"
+        profile_info += f"Accuracy: {self.stats['accuracy']:.2f}%"
+        
+        messagebox.showinfo("Profile", profile_info)
+
+    def practice_mode(self):
+        self.timer_paused = True
+        self.next_word()
 
 if __name__ == "__main__":
     root = tk.Tk()
